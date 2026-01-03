@@ -2,6 +2,7 @@ import  express from 'express';
 import dotenv from 'dotenv';
 import userRoutes from './Routes/userRoutes.js';
 import connectDB from './Config/connectionDB.js'
+import adminRoutes from './Routes/adminRoutes.js';
 dotenv.config();
 connectDB();
 const app = express();
@@ -12,7 +13,7 @@ app.use(express.urlencoded({extended:true}));
 
 
 app.use('/api',userRoutes)
-
+app.use('/api',adminRoutes)
 
 
 app.listen(Port,()=>{

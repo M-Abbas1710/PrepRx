@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken';
 import userModel from '../Scehmas/userSchema.js'
-import topicModel from '../Scehmas/Category.js';
+// import topicModel from '../Scehmas/Category.js';
 
 const registerUser = async (req, res) => {
   try {
@@ -54,66 +54,66 @@ const loginUser = async (req, res) => {
     res.status(500).json({ message: "Something Went Wrong", error: error.message })
   }
 }
-const chooseurGrowthZone = async (req, res) => {
-  try {
-    const userID = req.user.id;
-    let { topicname } = req.body; // e.g., ["Productivity", "Leadership"]
+// const chooseurGrowthZone = async (req, res) => {
+//   try {
+//     const userID = req.user.id;
+//     let { topicname } = req.body; // e.g., ["Productivity", "Leadership"]
 
-    if (!topicname || !Array.isArray(topicname) || topicname.length === 0) {
-      return res.status(400).json({ message: "Please provide topicname as an array" });
-    }
+//     if (!topicname || !Array.isArray(topicname) || topicname.length === 0) {
+//       return res.status(400).json({ message: "Please provide topicname as an array" });
+//     }
 
-    topicname = topicname.map(t => t.trim());
+//     topicname = topicname.map(t => t.trim());
 
-    // 1️⃣ Find existing topics
-    const existingTopics = await topicModel.find({
-      topicName: { $in: topicname }
-    });
-    const existingNames = existingTopics.map(t => t.topicName);
+//     // 1️⃣ Find existing topics
+//     const existingTopics = await topicModel.find({
+//       topicName: { $in: topicname }
+//     });
+//     const existingNames = existingTopics.map(t => t.topicName);
 
-    // 2️⃣ Determine missing topics
-    const missingTopics = topicname.filter(name => !existingNames.includes(name));
+//     // 2️⃣ Determine missing topics
+//     const missingTopics = topicname.filter(name => !existingNames.includes(name));
 
-    // 3️⃣ Create missing topics
-    let createdTopics = [];
-    if (missingTopics.length > 0) {
-      createdTopics = await topicModel.insertMany(
-        missingTopics.map(name => ({ topicName: name, choosenByUser: [userID] })),
-        { ordered: false }
-      );
-    }
+//     // 3️⃣ Create missing topics
+//     let createdTopics = [];
+//     if (missingTopics.length > 0) {
+//       createdTopics = await topicModel.insertMany(
+//         missingTopics.map(name => ({ topicName: name, choosenByUser: [userID] })),
+//         { ordered: false }
+//       );
+//     }
 
-    // 4️⃣ Update existing topics to include user
-    if (existingTopics.length > 0) {
-      await topicModel.updateMany(
-        { _id: { $in: existingTopics.map(t => t._id) } },
-        { $addToSet: { choosenByUser: userID } }
-      );
-    }
+//     // 4️⃣ Update existing topics to include user
+//     if (existingTopics.length > 0) {
+//       await topicModel.updateMany(
+//         { _id: { $in: existingTopics.map(t => t._id) } },
+//         { $addToSet: { choosenByUser: userID } }
+//       );
+//     }
 
-    // 5️⃣ Combine all topic IDs
-    const allTopicIds = [
-      ...existingTopics.map(t => t._id),
-      ...createdTopics.map(t => t._id)
-    ];
+//     // 5️⃣ Combine all topic IDs
+//     const allTopicIds = [
+//       ...existingTopics.map(t => t._id),
+//       ...createdTopics.map(t => t._id)
+//     ];
 
-    // 6️⃣ Update user interestTopic
-    const user = await userModel.findByIdAndUpdate(
-      userID,
-      { $addToSet: { interestTopic: { $each: allTopicIds } } },
-      { new: true }
-    ).populate('interestTopic');
+//     // 6️⃣ Update user interestTopic
+//     const user = await userModel.findByIdAndUpdate(
+//       userID,
+//       { $addToSet: { interestTopic: { $each: allTopicIds } } },
+//       { new: true }
+//     ).populate('interestTopic');
 
-    res.status(201).json({
-      message: "Topics added successfully",
-      user
-    });
+//     res.status(201).json({
+//       message: "Topics added successfully",
+//       user
+//     });
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Something went wrong", error: error.message });
-  }
-};
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ message: "Something went wrong", error: error.message });
+//   }
+// };
 
 const home = async (req, res) => {
   const userID = req.user.id;
@@ -151,4 +151,4 @@ const home = async (req, res) => {
 //     }
 // }
 
-export { registerUser, loginUser, chooseurGrowthZone, home }
+export { registerUser, loginUser, home }
