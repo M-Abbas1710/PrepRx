@@ -65,7 +65,7 @@ const loginAdmin = async (req, res) => {
             process.env.JWT_SECRET,
             { expiresIn: "1d" }
         );
-
+          res.cookie('Token', token)
         res.status(200).json({
             message: "Login successful",
             token,
