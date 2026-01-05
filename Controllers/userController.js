@@ -2,7 +2,10 @@ import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken';
 import userModel from '../Scehmas/userSchema.js'
 import cookieParser from 'cookie-parser';
-// import topicModel from '../Scehmas/Category.js';
+import topicModel from '../Scehmas/topicSchema.js';
+import quizQuestion from '../Scehmas/quizQuestion.js';
+import quizQuestion from '../Scehmas/quizAttempt.js';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const registerUser = async (req, res) => {
   try {
@@ -178,4 +181,9 @@ const logout = async (req, res) => {
 
 }
 
-export { registerUser, loginUser, home, logout }
+const CreateCustomQuiz =async (req,res) => {
+   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+   
+}
+
+export { registerUser, loginUser, home, logout ,CreateCustomQuiz}

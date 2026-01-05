@@ -1,5 +1,13 @@
 import mongoose from 'mongoose';
 const quizQuestionSchema = new mongoose.Schema({
+   selectedTopic:{
+    type:mongoose.Schema.Types.ObjectId,
+    ref:'topic'
+   },
+//    selectedSubTopics:{
+//     type:mongoose.Schema.Types.ObjectId,
+//     ref : 'subtopic'
+//    },
     question:{
         type:String,
         required:true
@@ -13,10 +21,9 @@ const quizQuestionSchema = new mongoose.Schema({
      type:String,
      enum:['Easy','Moderate','Hard'],
      required:true
-   },
-   selectedTopic:{
-    type:mongoose.Schema.Types.ObjectId,
-    ref:'Topic'
    }
 
 })
+const quizQuestionModel=mongoose.model('quizQuestion',quizQuestionSchema)
+
+export default quizQuestionModel
