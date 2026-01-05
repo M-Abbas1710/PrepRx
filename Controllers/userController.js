@@ -1,11 +1,15 @@
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken';
 import userModel from '../Scehmas/userSchema.js'
+import cookieParser from 'cookie-parser';
 // import topicModel from '../Scehmas/Category.js';
 
 const registerUser = async (req, res) => {
   try {
-    const { username, email, password, confirmpassword } = req.body;
+    const { username, email, password, confirmpassword, role } = req.body;
+    console.log(req.body);
+    console.log(email);
+
     const existingUser = await userModel.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "User Already exists" });
@@ -18,13 +22,14 @@ const registerUser = async (req, res) => {
       const newUser = await userModel.create({
         username,
         email,
-        password: hashedpassword
+        password: hashedpassword,
+        role
       })
       await newUser.save();
       res.status(201).json({ message: "User Registered Successfully", newUser })
     }
   } catch (error) {
-    res.status(500).json({ message: "Something went wrong" });
+    res.status(500).json({ message: "Something went wrong", error: error.message });
   }
 }
 
@@ -41,12 +46,17 @@ const loginUser = async (req, res) => {
       return res.status(400).json({ message: "Invalid Credentials" });
     }
     else {
+
       const token = jwt.sign({
         id: existingUser._id,
-        email: existingUser.email
+        email: existingUser.email,
+        role: existingUser.role
       },
         process.env.JWT_SECRET,
         { expiresIn: '3h' })
+
+
+      res.cookie('Token', token)
       res.status(200).json({ message: "login Succesfully", token })
 
     }
@@ -150,5 +160,22 @@ const home = async (req, res) => {
 //         res.status(500).json({message:"Something Went Wrong",error:error.message})
 //     }
 // }
+const logout = async (req, res) => {
+  try {
+    const token = req.cookies.Token
+    console.log('THE Logout token ',token);
+    
+    if (token) {
+      res.clearCookie('Token')
+    }
+    if (!token) {
+      console.log('No Token Found');
+    }
+    res.status(201).send({message:'token is Cleared From Cookies',token})
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong", error: error.message });
+  }
 
-export { registerUser, loginUser, home }
+}
+
+export { registerUser, loginUser, home, logout }

@@ -3,11 +3,14 @@ import dotenv from 'dotenv';
 import userRoutes from './Routes/userRoutes.js';
 import connectDB from './Config/connectionDB.js'
 import adminRoutes from './Routes/adminRoutes.js';
+import cookieParser from 'cookie-parser';
+
 dotenv.config();
 connectDB();
 const app = express();
 const Port =  process.env.PORT || 3000 ;
 
+app.use(cookieParser())
 app.use(express.json());
 app.use(express.urlencoded({extended:true}));
 
