@@ -4,7 +4,7 @@ import userModel from '../Scehmas/userSchema.js'
 import topicModel from '../Scehmas/topicSchema.js';
 import generatequiz from '../utilities/quizGenerator.js'
 import quizQuestionModel from '../Scehmas/quizQuestion.js';
-// import quizQuestion from '../Scehmas/quizAttempt.js';
+import QuizAttemptModel from '../Scehmas/quizAttempt.js'
 
 
 const registerUser = async (req, res) => {
@@ -78,28 +78,26 @@ const home = async (req, res) => {
   }
 }
 const chooseurGrowthZone = async (req, res) => {
-  const { topicname } = req.body;
+  const { title } = req.body;
   const userID = req.user.id;
 
   try {
-    // 1. Get the Topic ID from the Name
-    const existingTopic = await topicModel.findOne({ title: topicname });
+    // Handle single title or array of titles
+    const titles = Array.isArray(title) ? title : [title];
+    
+    // Get all Topic IDs from the Names
+    const existingTopics = await topicModel.find({ title: { $in: titles } });
 
-    if (!existingTopic) {
-      return res.status(404).json({ message: "Topic not found" });
+    if (existingTopics.length === 0) {
+      return res.status(404).json({ message: "No topics found" });
     }
-    const user = await userModel.findById(userID);
-    if (user.interestTopic.includes(existingTopic._id)) {
 
-      return res.status(200).json({ message: "Topic is already present in your list" });
-    }
-    // 2. The Logic: "Add if not exists, otherwise skip"
-    // $addToSet does exactly this automatically. 
-    // If the ID is already there, MongoDB does nothing (skips).
-    // If the ID is missing, MongoDB adds it.
+    const topicIds = existingTopics.map(topic => topic._id);
+    
+    // Add multiple topics if not already present
     const updatedUser = await userModel.findByIdAndUpdate(
       userID,
-      { $addToSet: { interestTopic: existingTopic._id } },
+      { $addToSet: { interestTopic: { $each: topicIds } } },
       { new: true } // Returns the updated document so you can see the result
     );
 
@@ -169,7 +167,7 @@ const CreateCustomQuiz = async (req, res) => {
         }));
         res.status(200).json({
             success: true,
-            topicName: title,
+            topicname: title,
             questions: questionsForUser
         });
   } catch (error) {
@@ -179,4 +177,92 @@ const CreateCustomQuiz = async (req, res) => {
 
 }
 
-export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone }
+const submitQuiz = async (req, res) => {
+  try {
+    // 1. Get Data from Frontend
+    const { topicId, answers } = req.body; 
+    const userId = req.user.id; 
+
+    // 2. Validation
+    if (!answers || !Array.isArray(answers)) {
+      return res.status(400).json({ message: "Invalid answers format" });
+    }
+    
+    // Find Topic (by name) to get the real ID
+    const topicDoc = await topicModel.findOne({ title: topicId });
+    if (!topicDoc) {
+       return res.status(404).send({ message: 'Topic NOT found' });
+    }
+   console.log(topicDoc);
+   
+    // 3. Get Questions from DB
+    const questionIds = answers.map(a => a.questionId);
+    console.log(questionIds);
+    
+    const dbQuestions = await quizQuestionModel.find({
+      _id: { $in: questionIds }
+    });
+    console.log(dbQuestions);
+
+    // 4. Calculate Score & Prepare Response
+    let score = 0;
+    const details = []; 
+
+    // Create Map for fast lookup
+    const questionMap = new Map(dbQuestions.map(q => [q._id.toString(), q]));
+
+    for (const answer of answers) {
+      const dbQuestion = questionMap.get(answer.questionId);
+
+      if (dbQuestion) {
+        const isCorrect = dbQuestion.correctAnswer === answer.selectedOption;
+        
+        if (isCorrect) score++;
+
+        // --- THE FIX IS HERE ---
+        // We add the question text directly to this object
+        details.push({
+          questionId: dbQuestion._id,
+          questionText: dbQuestion.question, // <--- Add this line!
+          userAnswer: answer.selectedOption,
+          correctAnswer: dbQuestion.correctAnswer, // Optional: helpful for frontend review
+          isCorrect: isCorrect
+        });
+      }
+    }
+
+    // 5. Calculate Stats
+    const totalQuestions = answers.length;
+    const percentage = totalQuestions > 0 ? (score / totalQuestions) * 100 : 0;
+
+    // 6. Save to DB
+    const newAttempt = new QuizAttemptModel({
+      userId: userId,
+      topicId: topicDoc._id, // Use the real ID we found earlier
+      score: score,
+      totalQuestions: totalQuestions,
+      percentage: percentage,
+      details: details
+    });
+
+    await newAttempt.save();
+
+    // 7. Send Result back
+    // Now 'details' contains all the questions, answers, and results
+    res.status(200).json({
+      success: true,
+      data: {
+        score,
+        totalQuestions,
+        percentage,
+        message: `You scored ${percentage}%`
+      }
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Error submitting quiz" });
+  }
+};
+
+export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone ,submitQuiz }

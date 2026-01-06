@@ -11,6 +11,10 @@ const quizAttemptSchema = new mongoose.Schema({
         ref: 'topic',
         required: true
     },
+    // quizid:{
+    //     type:mongoose.Schema.Types.ObjectId,
+    //     ref:'Quiz'
+    // },
     score: {
         type: Number,
         required: true
@@ -19,16 +23,16 @@ const quizAttemptSchema = new mongoose.Schema({
         type: Number,
         required: true
     },
-    // percentage: {
-    //     type: Number, // Useful for quick analytics (e.g., "You got 80%!")
-    //     required: true
-    // },
-    // Optional: Store exactly which questions they got right/wrong
-    details: [{
-        questionId: { type: mongoose.Schema.Types.ObjectId, ref: 'quizQuestion' },
-        userAnswer: String,
-        isCorrect: Boolean
-    }]
+    percentage: {
+        type: Number, // Useful for quick analytics (e.g., "You got 80%!")
+        required: true
+    },
+   details: [{
+             questionId: { type: mongoose.Schema.Types.ObjectId, ref: 'quizQuestion' },
+             userAnswer: String,
+             isCorrect: Boolean
+         }],
+    
 }, { timestamps: true });
 
 const QuizAttemptModel = mongoose.model('QuizAttempt', quizAttemptSchema);
