@@ -5,13 +5,13 @@ const VerifyUser = (req, res, next) => {
         // console.log('hello world');
         
         let token;
-        console.log(req.cookies.Token);
+        // console.log(req.cookies.Token);
 
         // PRIORITY 1: Check Cookies (Best for Web/Secure HttpOnly)
         // Note: req.cookies requires 'cookie-parser' to be installed and used in server.js
         if (req.cookies && req.cookies.Token) {
             token = req.cookies.Token;
-            console.log(token);
+            // console.log(token);
             
         }
     
@@ -19,11 +19,11 @@ const VerifyUser = (req, res, next) => {
         // Checks if header exists AND starts with "Bearer"
         else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
             token = req.headers.authorization.split(' ')[1];
-            console.log(token);
+            // console.log(token);
         }
 
         // If no token found in either place
-        console.log('The Token',req.cookies.Token);
+        // console.log('The Token',req.cookies.Token);
         
         if (!token) {
             return res.status(401).json({ message: "Access denied. No token provided." });
@@ -49,7 +49,7 @@ const VerifyUser = (req, res, next) => {
 const allowRoles = (...allowedRoles) => {
     return (req, res, next) => {
         // Ensure req.user exists before checking role to prevent crashes
-        console.log(req.user);
+        // console.log(req.user);
         
         if (!req.user || !req.user.role) {
              return res.status(403).json({ message: "Access forbidden: User role undefined" });
