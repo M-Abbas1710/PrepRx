@@ -8,7 +8,7 @@ const topicSchema = new mongoose.Schema({
   },
   description: {
     type: String
-  }
+  },
 }, { timestamps: true });
 
 // Prevent OverwriteModelError

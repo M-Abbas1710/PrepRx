@@ -1,7 +1,9 @@
+import mongoose from 'mongoose';
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken';
 import userModel from '../Scehmas/userSchema.js'
 import topicModel from '../Scehmas/topicSchema.js';
+import subtopics from '../Scehmas/subTopicSchema.js'
 import generatequiz from '../utilities/quizGenerator.js'
 import quizQuestionModel from '../Scehmas/quizQuestion.js';
 import QuizAttemptModel from '../Scehmas/quizAttempt.js'
@@ -84,7 +86,7 @@ const chooseurGrowthZone = async (req, res) => {
   try {
     // Handle single title or array of titles
     const titles = Array.isArray(title) ? title : [title];
-    
+
     // Get all Topic IDs from the Names
     const existingTopics = await topicModel.find({ title: { $in: titles } });
 
@@ -93,7 +95,7 @@ const chooseurGrowthZone = async (req, res) => {
     }
 
     const topicIds = existingTopics.map(topic => topic._id);
-    
+
     // Add multiple topics if not already present
     const updatedUser = await userModel.findByIdAndUpdate(
       userID,
@@ -132,6 +134,8 @@ const CreateCustomQuiz = async (req, res) => {
 
   try {
     const { title, nofQuest, difficulty } = req.body
+    console.log(title,nofQuest,difficulty);
+    
     const userID = req.user.id;
     if (!title && !nofQuest && !difficulty) {
       res.status(500).send({ message: "Fill all the input" });
@@ -144,7 +148,7 @@ const CreateCustomQuiz = async (req, res) => {
       });
     }
 
-    const data =await generatequiz(topicDoc.title, nofQuest, difficulty)
+    const data = await generatequiz(topicDoc.title, nofQuest, difficulty)
     let questions;
     try {
       questions = JSON.parse(data)
@@ -158,18 +162,18 @@ const CreateCustomQuiz = async (req, res) => {
       correctAnswer: single_question.correctAnswer,
       difficultyLevel: difficulty
     }))
-    const resultDocs= await quizQuestionModel.insertMany(insertQuestion)
+    const resultDocs = await quizQuestionModel.insertMany(insertQuestion)
     const questionsForUser = resultDocs.map(doc => ({
-            _id: doc._id,
-            question: doc.question,
-            option: doc.option,
-            difficultyLevel: doc.difficultyLevel
-        }));
-        res.status(200).json({
-            success: true,
-            topicname: title,
-            questions: questionsForUser
-        });
+      _id: doc._id,
+      question: doc.question,
+      option: doc.option,
+      difficultyLevel: doc.difficultyLevel
+    }));
+    res.status(200).json({
+      success: true,
+      topicname: title,
+      questions: questionsForUser
+    });
   } catch (error) {
     res.status(500).json({ message: "Something went wrong", error: error.message });
 
@@ -179,90 +183,174 @@ const CreateCustomQuiz = async (req, res) => {
 
 const submitQuiz = async (req, res) => {
   try {
-    // 1. Get Data from Frontend
-    const { topicId, answers } = req.body; 
+    const { topicId, answers } = req.body;
     const userId = req.user.id; 
 
-    // 2. Validation
-    if (!answers || !Array.isArray(answers)) {
-      return res.status(400).json({ message: "Invalid answers format" });
+    // 1. Fetch the actual Topic ID (Handle string vs ObjectId)
+    // If frontend sends "Pharmacology", we search by title. If ID, we use findById.
+    let topicDoc;
+    if (mongoose.Types.ObjectId.isValid(topicId)) {
+        topicDoc = await topicModel.findById(topicId);
+    } else {
+        topicDoc = await topicModel.findOne({ title: topicId });
     }
-    
-    // Find Topic (by name) to get the real ID
-    const topicDoc = await topicModel.findOne({ title: topicId });
+
     if (!topicDoc) {
-       return res.status(404).send({ message: 'Topic NOT found' });
+      return res.status(404).json({ message: 'Topic not found' });
     }
-   console.log(topicDoc);
-   
-    // 3. Get Questions from DB
+
+    // 2. Fetch all related questions from DB
     const questionIds = answers.map(a => a.questionId);
-    console.log(questionIds);
-    
-    const dbQuestions = await quizQuestionModel.find({
-      _id: { $in: questionIds }
-    });
-    console.log(dbQuestions);
+    const dbQuestions = await quizQuestionModel.find({ _id: { $in: questionIds } });
 
-    // 4. Calculate Score & Prepare Response
-    let score = 0;
-    const details = []; 
-
-    // Create Map for fast lookup
+    // Map for O(1) access
     const questionMap = new Map(dbQuestions.map(q => [q._id.toString(), q]));
 
+    let score = 0;
+    const resultDetails = []; // This array will power Screen C3
+
+    // 3. Grade the Quiz
     for (const answer of answers) {
       const dbQuestion = questionMap.get(answer.questionId);
 
       if (dbQuestion) {
+        // Check if correct
         const isCorrect = dbQuestion.correctAnswer === answer.selectedOption;
-        
         if (isCorrect) score++;
 
-        // --- THE FIX IS HERE ---
-        // We add the question text directly to this object
-        details.push({
+        // Build the Detail Object for the Frontend
+        resultDetails.push({
           questionId: dbQuestion._id,
-          questionText: dbQuestion.question, // <--- Add this line!
-          userAnswer: answer.selectedOption,
-          correctAnswer: dbQuestion.correctAnswer, // Optional: helpful for frontend review
-          isCorrect: isCorrect
+          questionText: dbQuestion.question,
+          userSelected: answer.selectedOption,
+          correctOption: dbQuestion.correctAnswer,
+          isCorrect: isCorrect,
+          
+          // --- DATA FOR SCREEN C3 ---
+          // The frontend needs these to show the explanation card
+          rationale: dbQuestion.rationale,        // "Why this answer is incorrect..."
+          whyMatters: dbQuestion.whyMatters,      // "Why this matters on floor..."
+          otherExplanations: dbQuestion.otherExplanations // Optional bullets
         });
       }
     }
 
-    // 5. Calculate Stats
+    // 4. Calculate Stats
     const totalQuestions = answers.length;
     const percentage = totalQuestions > 0 ? (score / totalQuestions) * 100 : 0;
 
-    // 6. Save to DB
+    // 5. Save Attempt to DB (History)
     const newAttempt = new QuizAttemptModel({
       userId: userId,
-      topicId: topicDoc._id, // Use the real ID we found earlier
+      topicId: topicDoc._id,
       score: score,
       totalQuestions: totalQuestions,
       percentage: percentage,
-      details: details
+      details: resultDetails 
     });
-
     await newAttempt.save();
 
-    // 7. Send Result back
-    // Now 'details' contains all the questions, answers, and results
+    // 6. Send Response
+    // The frontend will use 'resultDetails' to render the C3 screen
     res.status(200).json({
       success: true,
+      message: "Quiz submitted successfully",
       data: {
         score,
         totalQuestions,
         percentage,
-        message: `You scored ${percentage}%`
+        results: resultDetails // <--- THIS is what your frontend maps through
       }
     });
 
   } catch (error) {
-    console.log(error);
+    console.error("Quiz Submit Error:", error);
     res.status(500).json({ message: "Error submitting quiz" });
   }
 };
 
-export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone ,submitQuiz }
+
+
+// ==========================================
+// 1. GET ALL TOPICS (For Screen C1)
+// ==========================================
+const getAllTopics = async (req, res) => {
+  try {
+    // We use aggregate to fetch topics AND count their subtopics in one go
+    const topics = await topicModel.aggregate([
+      {
+        $lookup: {
+          from: "subtopics", // The collection name in MongoDB (usually lowercase plural of model name)
+          localField: "_id",
+          foreignField: "topicId",
+          as: "subtopicsData",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          title: 1,
+          description: 1,
+          // Create a new field 'lessonCount' by counting the array from lookup
+          lessonCount: { $size: "$subtopicsData" },
+        },
+      },
+    ]);
+
+    // Send response
+    res.status(200).json({
+      success: true,
+      message: "All topics fetched successfully",
+      data: topics,
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching topics",
+      error: error.message,
+    });
+  }
+};
+
+// ==========================================
+// 2. GET SUBTOPICS BY TOPIC ID (For Screen C2)
+// ==========================================
+const getSubtopicsByTopic = async (req, res) => {
+  try {
+    const { topicId } = req.params;
+
+    // Validate if topicId is a valid ObjectId
+    if (!mongoose.Types.ObjectId.isValid(topicId)) {
+      return res.status(400).json({ success: false, message: "Invalid Topic ID" });
+    }
+
+    // 1. Fetch the Topic details (to show the title "Pharmacology" at the top)
+    const topicDetails = await topicModel.findById(topicId);
+
+    if (!topicDetails) {
+      return res.status(404).json({ success: false, message: "Topic not found" });
+    }
+
+    // 2. Fetch all subtopics associated with this topicId
+    const subtopic = await subtopics.find({ topicId: topicId });
+
+    res.status(200).json({
+      success: true,
+      message: "Subtopics fetched successfully",
+      data: {
+        topic: topicDetails, // Contains title: "Pharmacology"
+        subtopics: subtopic // Contains list: "Fluid & electrolytes", "Drug Behavior", etc.
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching subtopics",
+      error: error.message,
+    });
+  }
+};
+
+export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone, submitQuiz, getAllTopics, getSubtopicsByTopic }
