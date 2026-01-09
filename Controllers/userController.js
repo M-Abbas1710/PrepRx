@@ -7,6 +7,7 @@ import subtopics from '../Scehmas/subTopicSchema.js'
 import generatequiz from '../utilities/quizGenerator.js'
 import quizQuestionModel from '../Scehmas/quizQuestion.js';
 import QuizAttemptModel from '../Scehmas/quizAttempt.js'
+import crashCoursesModel from '../Scehmas/CrashCourse.js';
 
 
 const registerUser = async (req, res) => {
@@ -352,5 +353,65 @@ const getSubtopicsByTopic = async (req, res) => {
     });
   }
 };
+ const getAllCrashCourses = async (req, res) => {
+    try {
+        // Fetch all courses and populate the linked topic details
+        const courses = await crashCoursesModel.find().populate('topicId');
 
-export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone, submitQuiz, getAllTopics, getSubtopicsByTopic }
+        return res.status(200).json({
+            success: true,
+            message: "All crash courses fetched successfully",
+            count: courses.length,
+            data: courses
+        });
+
+    } catch (error) {
+        console.error("Error fetching all courses:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error fetching crash courses",
+            error: error.message,
+        });
+    }
+};
+const getCrashCoursesByTopic = async (req, res) => {
+    try {
+        // 1. Get the topic name from the URL parameters
+        // Example Route: /api/crash-courses/:topicName
+        const { topicName } = req.params; 
+
+        if (!topicName) {
+            return res.status(400).json({ success: false, message: "Topic name is required" });
+        }
+
+        // 2. Find the Topic ID based on the Name
+        // We use a case-insensitive regex so "med-surg" matches "Med-Surg"
+        const topic = await topicModel.findOne({ 
+            title: topicName 
+        });
+
+        if (!topic) {
+            return res.status(404).json({ success: false, message: `Topic '${topicName}' not found` });
+        }
+
+        // 3. Find all crash courses that are linked to this Topic ID
+        const courses = await crashCoursesModel
+            .find({ topicId: topic._id })
+            .populate('topicId'); // Optional: Populates the full topic details in the result
+
+        return res.status(200).json({
+            success: true,
+            message: `Found ${courses.length} crash courses for ${topic.title}`,
+            data: courses
+        });
+
+    } catch (error) {
+        console.error("Error fetching courses by topic:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Server Error",
+            error: error.message,
+        });
+    }
+};
+export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone, submitQuiz, getAllTopics, getSubtopicsByTopic,getAllCrashCourses ,getCrashCoursesByTopic}

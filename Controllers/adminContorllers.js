@@ -3,6 +3,8 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken'
 import topicModel from '../Scehmas/topicSchema.js';
 import subtopicModel from '../Scehmas/subTopicSchema.js';
+import crashCoursesModel from '../Scehmas/CrashCourse.js';
+
 const registerAdmin = async (req, res) => {
     try {
         const { username, email, password } = req.body;
@@ -145,4 +147,62 @@ const addTopics = async (req, res) => {
     });
   }
 };
-export { registerAdmin, loginAdmin, dashboard, addTopics }
+
+const addCrashCourse = async (req, res) => {
+    try {
+        // 1. Destructure. 
+        // Note: Even if you send "topicName" from frontend, we capture it here.
+        // Assuming you send { "Title": "...", "topicId": "Med-Surg" }
+        const { Title, topicId } = req.body; 
+        
+        // 2. Validation: Check if file exists
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: "No file uploaded" });
+        }
+
+        // 3. Validation: Find the topic by NAME
+        // We look for a topic where the 'title' matches the string sent in 'topicId'
+        const topicExists = await topicModel.findOne({ title: topicId });
+        
+        if (!topicExists) {
+            fs.unlinkSync(req.file.path); 
+            return res.status(404).json({ success: false, message: "Topic not found" });
+        }  
+        
+
+        // 4. File Type Helper
+        const determineType = (mimetype) => {
+            if (mimetype.includes('image')) return 'image';
+            if (mimetype.includes('pdf')) return 'pdf';
+            return 'video';
+        };
+
+        // 5. Create the Crash Course Object (Use 'new', not 'create')
+        const newCourse = new crashCoursesModel({
+            title: Title, // FIX: Map 'Title' (body) to 'title' (schema)
+            fileUrl: req.file.path, 
+            fileType: determineType(req.file.mimetype),
+            topicId: topicExists._id // FIX: Use the ID from the DB result, not the request string
+        });
+
+        // 6. Save to DB
+        const savedCourse = await newCourse.save();
+        await savedCourse.populate('topicId')
+
+        return res.status(201).json({
+            success: true,
+            message: "Crash Course added and linked to Topic successfully",
+            data: savedCourse
+        });
+
+    } catch (error) {
+        console.error("Error adding course:", error);
+        if (req.file && req.file.path) {
+            fs.unlink(req.file.path, (err) => {
+                if (err) console.error("Cleanup failed:", err);
+            });
+        }
+        res.status(500).json({ success: false, message: "Server Error", error: error.message });
+    }
+}
+export { registerAdmin, loginAdmin, dashboard, addTopics ,addCrashCourse}
