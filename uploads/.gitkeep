@@ -1,0 +1,5 @@
+# Ignore everything in the uploads folder
+uploads/*
+
+# But do NOT ignore the .gitkeep file (so the folder stays)
+!uploads/.gitkeep
