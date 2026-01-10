@@ -6,11 +6,11 @@ const quizAttemptSchema = new mongoose.Schema({
         ref: 'User', // Matches your User model name
         required: true
     },
-    topicId: {
+    topicId:[ {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'topic',
         required: true
-    },
+    }],
     // quizid:{
     //     type:mongoose.Schema.Types.ObjectId,
     //     ref:'Quiz'

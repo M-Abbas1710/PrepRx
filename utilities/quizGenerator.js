@@ -1,34 +1,53 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-const generatequiz = async (topicname, nofQuest, difficulty) => {
+
+// 1. Change 'topicname' to 'topicNames' (Array)
+const generatequiz = async (topicNames, nofQuest, difficulty) => {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    
+    // Convert array to string for the prompt: "Cardio, Respiratory, Pharmacology"
+    const topicsString = Array.isArray(topicNames) ? topicNames.join(", ") : topicNames;
+
     const prompt = `
-        You are a quiz generator. Generate ${nofQuest} ${difficulty} level multiple-choice questions about "${topicname}".
+    SYSTEM ROLE: You are PrepRX AI, the NCLEX-training engine.
+    
+    CORE OBJECTIVE:
+    Generate ${nofQuest} high-quality NCLEX-style multiple-choice questions mixed across these specific topics: "${topicsString}".
+    
+    HIERARCHY OF RULES:
+    1. Safety First: Prioritize ABCs and Maslow.
+    2. Topic Alignment: Ensure questions are evenly distributed among: ${topicsString}.
+    
+    OUTPUT FORMAT (Strict JSON):
+    Return ONLY a valid JSON Array. No markdown.
+    
+    Each question object must match this structure:
+    {
+        "question": "Clinical scenario...",
+        "options": ["A", "B", "C", "D"],
+        "correctAnswer": "Exact text of correct option",
+        "rationale": "Detailed explanation...",
+        "keyTakeaway": "One sentence summary",
+        "strategyTip": "Short tip",
+        "difficulty": "${difficulty}",
         
-        Strictly return a valid JSON Array. No markdown, no "json" label.
-        
-        Structure for each object:
-        {
-            "question": "The question text",
-            "options": ["Option A", "Option B", "Option C", "Option D"],
-            "correctAnswer": "The exact string of the correct option"
-        }
-        `;
-    // If Flash still fails, try the standard Pro model to verify your code works
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const result = await model.generateContent(prompt);
-    // console.log('the Result ', result);
+        // CRITICAL: You must explicitly state which of the requested topics this question belongs to
+        "relatedTopic": "Exact string of one of the input topics (e.g. '${topicNames[0]}')" 
+    }
+    `;
 
-    const response = await result.response;
-    // console.log('The Responsse', response);
-    const text = response.text();
-    // console.log('The Text', text);
+    const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.5-flash",
+        generationConfig: { responseMimeType: "application/json" }
+    });
 
-    // 5. Clean & Parse JSON
-    const cleanedText = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    // console.log('The CleanedText', cleanedText);
-    return cleanedText
-
+    try {
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        return response.text().replace(/```json/g, "").replace(/```/g, "").trim();
+    } catch (error) {
+        console.error("Error generating quiz:", error);
+        return "[]"; 
+    }
 }
 
 export default generatequiz;
-

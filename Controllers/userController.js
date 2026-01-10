@@ -132,127 +132,147 @@ const logout = async (req, res) => {
 }
 
 const CreateCustomQuiz = async (req, res) => {
-
   try {
-    const { title, nofQuest, difficulty } = req.body
-    console.log(title,nofQuest,difficulty);
-    
+    // 1. Accept 'titles' (Array) instead of single 'title'
+    const { titles, nofQuest, difficulty } = req.body;
     const userID = req.user.id;
-    if (!title && !nofQuest && !difficulty) {
-      res.status(500).send({ message: "Fill all the input" });
+
+    if (!titles || titles.length === 0 || !nofQuest || !difficulty) {
+      return res.status(400).send({ message: "Please fill all input fields" });
     }
-    const topicDoc = await topicModel.findOne({ title });
-    const userinteres = await userModel.findById(userID)
-    if (!userinteres.interestTopic.includes(topicDoc._id)) {
+
+    // 2. Fetch ALL requested topics
+    const topicDocs = await topicModel.find({ title: { $in: titles } });
+
+    if (topicDocs.length !== titles.length) {
+      return res.status(404).json({ message: "One or more topics not found" });
+    }
+
+    // 3. Create a Map for quick ID lookup (Name -> ID)
+    // Example: { "Cardio": "65a...", "Respiratory": "65b..." }
+    const topicMap = {};
+    topicDocs.forEach(doc => {
+      topicMap[doc.title] = doc._id;
+    });
+
+    // 4. Check User Interests for ALL topics
+    const userinteres = await userModel.findById(userID);
+    const allTopicsAllowed = topicDocs.every(doc => userinteres.interestTopic.includes(doc._id));
+
+    if (!allTopicsAllowed) {
       return res.status(403).json({
-        message: "Access Denied. You must add this topic to your interests first."
+        message: "Access Denied. You must add all selected topics to your interests first."
       });
     }
 
-    const data = await generatequiz(topicDoc.title, nofQuest, difficulty)
+    // 5. Generate Quiz (Pass the array of titles)
+    const topicNamesList = topicDocs.map(t => t.title);
+    const data = await generatequiz(topicNamesList, nofQuest, difficulty);
+
     let questions;
     try {
-      questions = JSON.parse(data)
+      questions = JSON.parse(data);
     } catch (error) {
-      res.status(500).json({ message: "Something went wrong", error: error.message });
+      return res.status(500).json({ message: "Error parsing AI response", error: error.message });
     }
-    const insertQuestion = questions.map(single_question => ({
-      selectedTopic: topicDoc._id,
-      question: single_question.question,
-      option: single_question.options,
-      correctAnswer: single_question.correctAnswer,
-      difficultyLevel: difficulty
-    }))
-    const resultDocs = await quizQuestionModel.insertMany(insertQuestion)
+
+    // 6. Map AI response to DB Schema
+    const insertQuestion = questions.map(single_question => {
+      // Find the correct Topic ID based on what AI said the topic was
+      // Fallback to the first topic ID if AI makes a typo
+      const matchedTopicId = topicMap[single_question.relatedTopic] || topicDocs[0]._id;
+
+      return {
+        selectedTopic: matchedTopicId, // Save the specific ID
+        question: single_question.question,
+        option: single_question.options,
+        correctAnswer: single_question.correctAnswer,
+        difficultyLevel: difficulty,
+        rationale: single_question.rationale,
+        keyTakeaway: single_question.keyTakeaway,
+        strategyTip: single_question.strategyTip,
+        category: single_question.relatedTopic // Or keep general category
+      };
+    });
+
+    // 7. Save and Return
+    const resultDocs = await quizQuestionModel.insertMany(insertQuestion);
+
     const questionsForUser = resultDocs.map(doc => ({
       _id: doc._id,
       question: doc.question,
       option: doc.option,
-      difficultyLevel: doc.difficultyLevel
+      difficultyLevel: doc.difficultyLevel,
+      rationale: doc.rationale,
+      keyTakeaway: doc.keyTakeaway,
+      strategyTip: doc.strategyTip,
+      category: doc.category
     }));
+
     res.status(200).json({
       success: true,
-      topicname: title,
+      topicnames: titles, // Return list of topics
       questions: questionsForUser
     });
+
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: "Something went wrong", error: error.message });
-
   }
-
 }
 
 const submitQuiz = async (req, res) => {
   try {
-    const { topicId, answers } = req.body;
-    const userId = req.user.id; 
+    const { answers } = req.body; // Removed single topicId from body
+    const userId = req.user.id;
 
-    // 1. Fetch the actual Topic ID (Handle string vs ObjectId)
-    // If frontend sends "Pharmacology", we search by title. If ID, we use findById.
-    let topicDoc;
-    if (mongoose.Types.ObjectId.isValid(topicId)) {
-        topicDoc = await topicModel.findById(topicId);
-    } else {
-        topicDoc = await topicModel.findOne({ title: topicId });
-    }
-
-    if (!topicDoc) {
-      return res.status(404).json({ message: 'Topic not found' });
-    }
-
-    // 2. Fetch all related questions from DB
+    // 1. Get all questions to find which topics were actually tested
     const questionIds = answers.map(a => a.questionId);
     const dbQuestions = await quizQuestionModel.find({ _id: { $in: questionIds } });
-
-    // Map for O(1) access
     const questionMap = new Map(dbQuestions.map(q => [q._id.toString(), q]));
 
-    let score = 0;
-    const resultDetails = []; // This array will power Screen C3
+    // 2. Identify all unique topics involved in this submission
+    const allTopicIdStrings = dbQuestions.map(q => q.selectedTopic.toString());
+    const distinctTopicIds = [...new Set(allTopicIdStrings)];
 
-    // 3. Grade the Quiz
+    let score = 0;
+    const resultDetails = [];
+
+    // 3. Grade
     for (const answer of answers) {
       const dbQuestion = questionMap.get(answer.questionId);
-
       if (dbQuestion) {
-        // Check if correct
         const isCorrect = dbQuestion.correctAnswer === answer.selectedOption;
         if (isCorrect) score++;
 
-        // Build the Detail Object for the Frontend
         resultDetails.push({
           questionId: dbQuestion._id,
           questionText: dbQuestion.question,
           userSelected: answer.selectedOption,
           correctOption: dbQuestion.correctAnswer,
           isCorrect: isCorrect,
-          
-          // --- DATA FOR SCREEN C3 ---
-          // The frontend needs these to show the explanation card
-          rationale: dbQuestion.rationale,        // "Why this answer is incorrect..."
-          whyMatters: dbQuestion.whyMatters,      // "Why this matters on floor..."
-          otherExplanations: dbQuestion.otherExplanations // Optional bullets
+          rationale: dbQuestion.rationale,
+          keyTakeaway: dbQuestion.keyTakeaway,
+          strategyTip: dbQuestion.strategyTip
         });
       }
     }
 
-    // 4. Calculate Stats
     const totalQuestions = answers.length;
     const percentage = totalQuestions > 0 ? (score / totalQuestions) * 100 : 0;
 
-    // 5. Save Attempt to DB (History)
-    const newAttempt = new QuizAttemptModel({
+    // 4. Save Attempt (Store multiple topics)
+    const newAttempt = await QuizAttemptModel.create({
       userId: userId,
-      topicId: topicDoc._id,
+      topicId: distinctTopicIds, // Save the array of topics
       score: score,
       totalQuestions: totalQuestions,
       percentage: percentage,
-      details: resultDetails 
+      details: resultDetails
     });
+
     await newAttempt.save();
 
-    // 6. Send Response
-    // The frontend will use 'resultDetails' to render the C3 screen
     res.status(200).json({
       success: true,
       message: "Quiz submitted successfully",
@@ -260,7 +280,7 @@ const submitQuiz = async (req, res) => {
         score,
         totalQuestions,
         percentage,
-        results: resultDetails // <--- THIS is what your frontend maps through
+        results: resultDetails
       }
     });
 
@@ -353,65 +373,65 @@ const getSubtopicsByTopic = async (req, res) => {
     });
   }
 };
- const getAllCrashCourses = async (req, res) => {
-    try {
-        // Fetch all courses and populate the linked topic details
-        const courses = await crashCoursesModel.find().populate('topicId');
+const getAllCrashCourses = async (req, res) => {
+  try {
+    // Fetch all courses and populate the linked topic details
+    const courses = await crashCoursesModel.find().populate('topicId');
 
-        return res.status(200).json({
-            success: true,
-            message: "All crash courses fetched successfully",
-            count: courses.length,
-            data: courses
-        });
+    return res.status(200).json({
+      success: true,
+      message: "All crash courses fetched successfully",
+      count: courses.length,
+      data: courses
+    });
 
-    } catch (error) {
-        console.error("Error fetching all courses:", error);
-        return res.status(500).json({
-            success: false,
-            message: "Error fetching crash courses",
-            error: error.message,
-        });
-    }
+  } catch (error) {
+    console.error("Error fetching all courses:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching crash courses",
+      error: error.message,
+    });
+  }
 };
 const getCrashCoursesByTopic = async (req, res) => {
-    try {
-        // 1. Get the topic name from the URL parameters
-        // Example Route: /api/crash-courses/:topicName
-        const { topicName } = req.params; 
+  try {
+    // 1. Get the topic name from the URL parameters
+    // Example Route: /api/crash-courses/:topicName
+    const { topicName } = req.params;
 
-        if (!topicName) {
-            return res.status(400).json({ success: false, message: "Topic name is required" });
-        }
-
-        // 2. Find the Topic ID based on the Name
-        // We use a case-insensitive regex so "med-surg" matches "Med-Surg"
-        const topic = await topicModel.findOne({ 
-            title: topicName 
-        });
-
-        if (!topic) {
-            return res.status(404).json({ success: false, message: `Topic '${topicName}' not found` });
-        }
-
-        // 3. Find all crash courses that are linked to this Topic ID
-        const courses = await crashCoursesModel
-            .find({ topicId: topic._id })
-            .populate('topicId'); // Optional: Populates the full topic details in the result
-
-        return res.status(200).json({
-            success: true,
-            message: `Found ${courses.length} crash courses for ${topic.title}`,
-            data: courses
-        });
-
-    } catch (error) {
-        console.error("Error fetching courses by topic:", error);
-        return res.status(500).json({
-            success: false,
-            message: "Server Error",
-            error: error.message,
-        });
+    if (!topicName) {
+      return res.status(400).json({ success: false, message: "Topic name is required" });
     }
+
+    // 2. Find the Topic ID based on the Name
+    // We use a case-insensitive regex so "med-surg" matches "Med-Surg"
+    const topic = await topicModel.findOne({
+      title: topicName
+    });
+
+    if (!topic) {
+      return res.status(404).json({ success: false, message: `Topic '${topicName}' not found` });
+    }
+
+    // 3. Find all crash courses that are linked to this Topic ID
+    const courses = await crashCoursesModel
+      .find({ topicId: topic._id })
+      .populate('topicId'); // Optional: Populates the full topic details in the result
+
+    return res.status(200).json({
+      success: true,
+      message: `Found ${courses.length} crash courses for ${topic.title}`,
+      data: courses
+    });
+
+  } catch (error) {
+    console.error("Error fetching courses by topic:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
 };
-export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone, submitQuiz, getAllTopics, getSubtopicsByTopic,getAllCrashCourses ,getCrashCoursesByTopic}
+export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone, submitQuiz, getAllTopics, getSubtopicsByTopic, getAllCrashCourses, getCrashCoursesByTopic }
