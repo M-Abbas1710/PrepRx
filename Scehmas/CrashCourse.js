@@ -4,6 +4,11 @@ const crashCourses = new mongoose.Schema({
     title: { type: String }, // Lowercase 't' matches the fix above
     fileUrl: { type: String, required: true },
     fileType: { type: String, enum: ['video', 'pdf', 'image'], required: true },
+    // duration:{
+    //     type:Number,
+    //     required:true,
+    //     helpText:'Store in minutes for videos or page count for PDFs'
+    // },
     topicId: { // This matches the key used in the controller fix
         type: mongoose.Schema.Types.ObjectId,
         ref: "topic",
