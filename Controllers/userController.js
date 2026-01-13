@@ -8,7 +8,8 @@ import generatequiz from '../utilities/quizGenerator.js'
 import quizQuestionModel from '../Scehmas/quizQuestion.js';
 import QuizAttemptModel from '../Scehmas/quizAttempt.js'
 import crashCoursesModel from '../Scehmas/CrashCourse.js';
-
+import MotivationPostModel from '../Scehmas/mondayPost.js'
+import scriptModel from '../Scehmas/ScriptsSchema.js';
 
 const registerUser = async (req, res) => {
   try {
@@ -434,4 +435,278 @@ const getCrashCoursesByTopic = async (req, res) => {
     });
   }
 };
-export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone, submitQuiz, getAllTopics, getSubtopicsByTopic, getAllCrashCourses, getCrashCoursesByTopic }
+const sharePost = async (req, res) => {
+  try {
+    const { content } = req.body;
+    const userid = req.user.id;
+
+    console.log("User:", userid, " Content:", content);
+    console.log("File:", req.file);
+
+    // --- CHECK: Ensure at least one field (text OR image) exists ---
+    // If NO content AND NO file is uploaded, stop here.
+    if ((!content || content.trim().length === 0) && !req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Post cannot be empty. Please provide text or upload an image.",
+      });
+    }
+
+    // Determine image path (if file exists)
+    const imagePath = req.file ? req.file.path : null;
+
+    // Create the Post
+    const newPost = await MotivationPostModel.create({
+      author: userid,
+      content,
+      imageUrl: imagePath, 
+    });
+
+    // Link the post back to the User
+    await userModel.findByIdAndUpdate(userid, {
+      $push: { motivationPosts: newPost._id }
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `New Post Created by User ${userid}`,
+      post: newPost
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+const toggleLike = async (req, res) => {
+  try {
+    // 1. Get Post ID from URL params
+    const postId = req.params.postid;
+    
+    // 2. Get User ID from JWT (middleware)
+    const userId = req.user.id;
+
+    // 3. Find the post
+    const post = await MotivationPostModel.findById(postId);
+
+    if (!post) {
+      return res.status(404).json({ msg: 'Post not found' });
+    }
+
+    // 4. Check if post is already liked by this user
+    // We convert the ObjectIds to strings to compare them safely
+    const isLiked = post.likes.some(id => id.toString() === userId);
+
+    if (isLiked) {
+      // --- UNLIKE FLOW ---
+      // Filter out the user's ID to remove it
+      post.likes = post.likes.filter(id => id.toString() !== userId);
+    } else {
+      // --- LIKE FLOW ---
+      // Add user's ID to the array
+      post.likes.unshift(userId);
+    }
+
+    // 5. Save changes to DB
+    await post.save();
+
+    // 6. Return the updated likes array (so frontend can update the counter instantly)
+    res.status(201).json({
+      likes:post.likes
+    });
+
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+};
+const commentPost = async (req, res) => {
+    try {
+      const { comment } = req.body; // The text content
+      const postId = req.params.postid;
+      const userId = req.user.id;
+
+      // 1. Validation
+      if (!comment) {
+        return res.status(400).json({ msg: "Comment text is required" });
+      }
+
+      const post = await MotivationPostModel.findById(postId);
+      if (!post) {
+        return res.status(404).json({ msg: "Post not found" });
+      }
+
+      // 2. Add Comment
+      // We ONLY pass 'user' and 'text'. 
+      // Mongoose automatically adds '_id' and 'createdAt' because of your Schema.
+      const newComment = {
+        user: userId,
+        text: comment
+      };
+
+      post.comments.unshift(newComment); // Adds to the top of the list
+
+      // 3. Save
+      await post.save();
+
+      // 4. Return updated comments
+      res.json({ success: true, comments: post.comments });
+
+    } catch (error) {
+       console.error(error);
+       res.status(500).send('Server Error');
+    }
+}
+const getAllPosts = async (req, res) => {
+  try {
+    // 1. Find all posts
+    const posts = await MotivationPostModel.find()
+      // 2. Sort by newest first (-1 means descending order)
+      .sort({ createdAt: -1 })
+      
+      // 3. Populate the Author details (Get username & email, hide password)
+      .populate('author', 'username email')
+      
+      // 4. Populate the User details inside the Comments array
+      .populate('comments.user', 'username email');
+
+    res.status(200).json({
+      success: true,
+      count: posts.length,
+      posts: posts
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message
+    });
+  }
+};
+const createNote=async (req,res) => {
+  try {
+    const { title, content } = req.body;
+    const userId = req.user.id; // From JWT
+
+    // 1. Create the Note
+    const newNote = await scriptModel.create({
+      user: userId,
+      title: title || 'Untitled Note', // Default if no title provided
+      content: content
+    });
+
+    // 2. Add note ID to User's list (Optional but keeps consistency)
+    await userModel.findByIdAndUpdate(userId, {
+      $push: { scriptingNotes: newNote._id }
+    });
+
+    res.status(201).json({
+      success: true,
+      note: newNote
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+const updateNote = async (req, res) => {
+    try {
+        const noteid = req.params.noteid;
+        const { title, content } = req.body;
+        const userid = req.user.id; // Get ID from JWT middleware
+
+        // 1. Find the note AND ensure it belongs to the logged-in user
+        // { new: true } ensures 'updatedNote' contains the NEW data, not the old one.
+        // { runValidators: true } ensures the schema rules (like 'content required') are checked.
+        const updatedNote = await scriptModel.findOneAndUpdate(
+            { _id: noteid, user: userid }, 
+            { title, content },
+            { new: true, runValidators: true } 
+        );
+
+        // 2. Check if note was found
+        if (!updatedNote) {
+            return res.status(404).json({ 
+                success: false, 
+                message: "Note not found or you are not authorized to edit it." 
+            });
+        }
+
+        // 3. Send response
+        res.status(200).json({ 
+            success: true, 
+            message: "Note updated successfully", 
+            note: updatedNote 
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+}
+
+const deleteNote = async (req, res) => {
+  try {
+    const noteid = req.params.noteid;
+    const userid = req.user.id; // Get from JWT
+
+    // 1. Delete the Note securely (Check ID + Owner)
+    const deletedNote = await scriptModel.findOneAndDelete({ 
+      _id: noteid, 
+      user: userid 
+    });
+
+    // Check if note existed and belonged to user
+    if (!deletedNote) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Note not found or authorized" 
+      });
+    }
+
+    // 2. Remove the Note ID from the User's 'scriptingNotes' array
+    // We use 'findByIdAndUpdate' with '$pull' operator
+    await userModel.findByIdAndUpdate(userid, {
+      $pull: { scriptingNotes: noteid }
+    });
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Note deleted successfully" 
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+const getallNotes=async (req,res) => {
+  try {
+    const userId = req.user.id;
+
+    // 1. Find notes ONLY belonging to this user
+    // 2. Sort by 'createdAt: -1' (Newest on TOP)
+    const notes = await scriptModel.find({ user: userId })
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: notes.length,
+      notes: notes
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server Error" });
+  }
+}
+export { registerUser, loginUser, home, logout, CreateCustomQuiz, chooseurGrowthZone, submitQuiz, getAllTopics, getSubtopicsByTopic, getAllCrashCourses, getCrashCoursesByTopic,sharePost ,toggleLike,commentPost,getAllPosts,createNote,updateNote,deleteNote,getallNotes}

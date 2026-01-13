@@ -1,4 +1,4 @@
-import mongoose, { Mongoose } from "mongoose";
+import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema({
   username: {
@@ -26,7 +26,19 @@ const userSchema = new mongoose.Schema({
   interestTopic:[{
     type:mongoose.Schema.Types.ObjectId,
     ref:'Topic'
-  }]
+  }],
+  motivationPosts: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'MotivationPost'
+    }
+  ],
+  scriptingNotes: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ScriptingNote'
+    }
+  ],
 }, { timestamps: true });
 
 const userModel = mongoose.model('User', userSchema);
